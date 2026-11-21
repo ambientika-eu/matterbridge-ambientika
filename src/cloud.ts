@@ -185,7 +185,7 @@ export class AmbientikaCloud {
       let res: Response;
       let text: string;
       try {
-        res = await fetch(url, { method, headers, body, signal: AbortSignal.any([controller.signal, limit]), redirect: 'error' });
+        res = await fetch(url, { method, headers, body, signal: AbortSignal.any([controller.signal, limit]) });
         text = await res.text();
       } catch (e) {
         if (limit.aborted && !controller.signal.aborted) {
