@@ -299,7 +299,7 @@ export class AmbientikaPlatform extends MatterbridgeDynamicPlatform {
       device.log,
     );
     device.addCommandHandler('changeToMode', ({ request }) => {
-      const mode = OPERATING_MODES[(request as { newMode: number }).newMode];
+      const mode = OPERATING_MODES[request.newMode];
       if (mode !== undefined) this.want(state, { operatingMode: mode });
     });
 
@@ -538,7 +538,7 @@ export class AmbientikaPlatform extends MatterbridgeDynamicPlatform {
       state.wanted = undefined;
       if (!all || this.stopped) return;
       state.queue = state.queue
-        .then(() => this.command(state, all))
+        .then(async () => this.command(state, all))
         .catch((e: unknown) => {
           if (this.stopped) return;
           this.log.warn(`${this.label(state)}: ${e instanceof Error ? e.message : String(e)}`);
@@ -610,7 +610,7 @@ export class AmbientikaPlatform extends MatterbridgeDynamicPlatform {
     await this.take(state, assumed);
     this.later(() => {
       if (this.stopped || !this.units.has(serial) || state.holdUntil > Date.now()) return;
-      void this.readUnit(state).then((r) => (r.ok ? this.judge([r]) : undefined));
+      void this.readUnit(state).then(async (r) => (r.ok ? this.judge([r]) : undefined));
     }, TIMING.afterCommandS + 0.2);
   }
 }

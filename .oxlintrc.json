@@ -11,6 +11,8 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "ignorePatterns": [
+    "vitest/fake-cloud.cjs",
+    "vitest/ipv6-shim.mjs",
     "**/.cache/**",
     "**/.git/**",
     "**/build/**",

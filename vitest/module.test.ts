@@ -5,6 +5,7 @@
  * The tests run one after the other: they share the Matter node.
  */
 
+// oxlint-disable-next-line import/no-unassigned-import
 import './ipv6-shim.mjs';
 
 const NAME = 'Ambientika';
@@ -77,11 +78,14 @@ describe('matterbridge-ambientika', () => {
   const reachable = (serial: string): unknown => dev(serial).getAttribute(BridgedDeviceBasicInformation, 'reachable');
   const allReachable = (): boolean => cloud.serials.every((s: string) => platform.units.get(s)?.reachable === true && reachable(s) === true);
   const changes = (): any[] => cloud.log.filter((l: any) => l.kind === 'change-mode');
-  const logged = (level: LogLevel, re: RegExp): number => loggerLogSpy.mock.calls.filter((c) => c[0] === level && re.test(String(c[1]))).length;
+  const logged = (level: LogLevel, re: RegExp): number => loggerLogSpy.mock.calls.filter((c) => c[0] === level && re.test(c[1])).length;
   const controllerSetsFan = async (serial: string, mode: FanControl.FanMode): Promise<void> => {
     await invokeSubscribeHandler(dev(serial), 'fanControl', 'fanMode', mode, fanMode(serial));
   };
-  const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+  const wait = async (ms: number): Promise<void> =>
+    new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
 
   beforeAll(async () => {
     try {
@@ -295,7 +299,7 @@ describe('matterbridge-ambientika', () => {
       await expect.poll(() => reachable(WOHN), { timeout: 10000 }).toBe(false);
       expect(reachable(FLUR)).toBe(true);
       expect(logged(LogLevel.WARN, /No status from the unit Wohnzimmer \(A0B1C2D3E401\)/)).toBe(1);
-      expect(loggerLogSpy.mock.calls.some((c) => /<html|fanSp/.test(String(c[1])))).toBe(false);
+      expect(loggerLogSpy.mock.calls.some((c) => /<html|fanSp/.test(c[1]))).toBe(false);
       cloud.fault(WOHN, null);
       await expect.poll(() => reachable(WOHN)).toBe(true);
       expect(logged(LogLevel.INFO, /The unit Wohnzimmer \(A0B1C2D3E401\) answers again/)).toBe(1);
@@ -370,7 +374,7 @@ describe('matterbridge-ambientika', () => {
     expect(cloud.counts.auth).toBe(1);
     await wait(400);
     expect(cloud.counts.auth).toBe(1);
-    expect(loggerLogSpy.mock.calls.some((c) => String(c[1]).includes('wrong'))).toBe(false);
+    expect(loggerLogSpy.mock.calls.some((c) => c[1].includes('wrong'))).toBe(false);
     expect(platform.units.size).toBe(0);
     await stop();
   });
@@ -378,7 +382,7 @@ describe('matterbridge-ambientika', () => {
   it('exposes only the units of the white list, without the mode selection when it is switched off', async () => {
     await start({ whiteList: ['Flur', ELTERN], operatingModeSelect: false });
     await expect.poll(() => platform.units.get(FLUR)?.reachable === true && platform.units.get(ELTERN)?.reachable === true).toBe(true);
-    expect([...platform.units.keys()].sort()).toEqual([FLUR, ELTERN].sort());
+    expect([...platform.units.keys()].toSorted()).toEqual([FLUR, ELTERN].toSorted());
     expect(dev(FLUR).hasClusterServer(ModeSelect)).toBe(false);
     expect(fanMode(FLUR)).toBe(FanControl.FanMode.Auto);
     await wait(300);
@@ -411,7 +415,7 @@ describe('matterbridge-ambientika', () => {
 describe('cloud client and mapping', () => {
   it('reads the address as typed', () => {
     expect(cleanHost('')).toBe('https://app.ambientika.eu:4521');
-    expect(cleanHost(undefined)).toBe('https://app.ambientika.eu:4521');
+    expect(cleanHost(null)).toBe('https://app.ambientika.eu:4521');
     expect(cleanHost(' app.example.com:4521/ ')).toBe('https://app.example.com:4521');
     expect(cleanHost('http://127.0.0.1:8080//')).toBe('http://127.0.0.1:8080');
   });
@@ -420,10 +424,10 @@ describe('cloud client and mapping', () => {
     const cloud: any = await fakeCloud.startFakeCloud();
     try {
       const c = new AmbientikaCloud({ username: cloud.USER, password: cloud.PASSWORD, host: cloud.url });
-      expect((await Promise.all(cloud.serials.map((s: string) => c.status(s)))).length).toBe(5);
+      expect((await Promise.all(cloud.serials.map(async (s: string) => c.status(s)))).length).toBe(5);
       expect(cloud.counts.auth).toBe(1);
       cloud.expire();
-      await Promise.all(cloud.serials.map((s: string) => c.status(s)));
+      await Promise.all(cloud.serials.map(async (s: string) => c.status(s)));
       expect(cloud.counts.auth).toBe(2);
       await expect(c.status('NOPE')).rejects.toBeInstanceOf(CloudError);
       await expect(c.changeMode(cloud.serials[0], { operatingMode: 'Smart', fanSpeed: 'Night', humidityLevel: 'Normal' })).rejects.toThrow('cannot be sent');

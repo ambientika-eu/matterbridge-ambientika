@@ -92,6 +92,16 @@ export class CloudError extends Error {
 }
 
 /**
+ * True for a JSON object (not an array, not null).
+ *
+ * @param {unknown} value - What the cloud sent.
+ * @returns {boolean} Whether its fields can be read.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
  * A few words of an error answer of the cloud, never a whole HTML page.
  *
  * @param {unknown} data - The answer of the cloud.
@@ -99,7 +109,7 @@ export class CloudError extends Error {
  */
 function shortText(data: unknown): string {
   let text: unknown = data;
-  if (data !== null && typeof data === 'object') text = (data as { message?: unknown }).message;
+  if (isRecord(data)) text = data.message;
   if (typeof text !== 'string') return '';
   const clean = text.replace(/\s+/g, ' ').trim();
   if (clean.startsWith('<')) return '';
@@ -181,8 +191,9 @@ export class AmbientikaCloud {
         if (limit.aborted && !controller.signal.aborted) {
           throw new CloudError(`no answer from the Ambientika cloud within ${Math.round(this.timeoutMs / 1000)} seconds`, { kind: 'timeout' });
         }
-        const error = e as { message?: string; cause?: { code?: string; message?: string } };
-        throw new CloudError(`no connection to the Ambientika cloud (${error.cause?.code ?? error.cause?.message ?? error.message ?? String(e)})`, { kind: 'network' });
+        const cause: unknown = e instanceof Error ? e.cause : undefined;
+        const code = isRecord(cause) && typeof cause.code === 'string' ? cause.code : cause instanceof Error ? cause.message : undefined;
+        throw new CloudError(`no connection to the Ambientika cloud (${code ?? (e instanceof Error ? e.message : String(e))})`, { kind: 'network' });
       }
       if (text.length > MAX_BODY) text = text.slice(0, MAX_BODY);
       const type = (res.headers.get('content-type') ?? '').toLowerCase();
@@ -211,8 +222,8 @@ export class AmbientikaCloud {
    *
    * @returns {Promise<void>} Resolves when the token is there.
    */
-  signIn(): Promise<void> {
-    this.signingIn ??= (async () => {
+  async signIn(): Promise<void> {
+    this.signingIn ??= (async (): Promise<void> => {
       let data: unknown;
       try {
         data = await this.request('POST', 'users/authenticate', { auth: false, body: { username: this.username, password: this.password } });
@@ -222,7 +233,7 @@ export class AmbientikaCloud {
         }
         throw e;
       }
-      const token = (data as { jwtToken?: unknown } | null)?.jwtToken;
+      const token = isRecord(data) ? data.jwtToken : undefined;
       if (typeof token !== 'string' || token === '') {
         throw new CloudError('the Ambientika cloud answered the sign-in without a token', { status: 200, kind: 'format' });
       }
@@ -230,7 +241,7 @@ export class AmbientikaCloud {
     })().finally(() => {
       this.signingIn = null;
     });
-    return this.signingIn;
+    await this.signingIn;
   }
 
   /**
@@ -266,15 +277,15 @@ export class AmbientikaCloud {
     const units: Unit[] = [];
     const seen = new Set<string>();
     const text = (v: unknown): string => (typeof v === 'string' ? v.trim().slice(0, 120) : '');
-    for (const entry of houses as Array<{ houseId?: unknown; id?: unknown } | null>) {
-      const houseId = entry?.houseId ?? entry?.id;
+    for (const entry of houses as unknown[]) {
+      const houseId = isRecord(entry) ? (entry.houseId ?? entry.id) : undefined;
       if (typeof houseId !== 'number' && typeof houseId !== 'string') continue;
-      const house = (await this.authed('GET', 'house/house-complete-info', { query: { houseId } })) as { name?: unknown; rooms?: unknown } | null;
-      if (house === null || typeof house !== 'object' || !Array.isArray(house.rooms)) continue;
-      for (const room of house.rooms as Array<{ name?: unknown; devices?: unknown } | null>) {
-        if (room === null || typeof room !== 'object' || !Array.isArray(room.devices)) continue;
-        for (const d of room.devices as Array<Record<string, unknown> | null>) {
-          if (d === null || typeof d !== 'object' || typeof d.serialNumber !== 'string' || d.serialNumber.trim() === '') continue;
+      const house = await this.authed('GET', 'house/house-complete-info', { query: { houseId } });
+      if (!isRecord(house) || !Array.isArray(house.rooms)) continue;
+      for (const room of house.rooms as unknown[]) {
+        if (!isRecord(room) || !Array.isArray(room.devices)) continue;
+        for (const d of room.devices as unknown[]) {
+          if (!isRecord(d) || typeof d.serialNumber !== 'string' || d.serialNumber.trim() === '') continue;
           const serial = d.serialNumber.trim();
           if (seen.has(serial)) continue;
           seen.add(serial);
@@ -282,7 +293,7 @@ export class AmbientikaCloud {
             serial,
             name: text(d.name),
             role: text(d.role),
-            zone: Number.isInteger(d.zoneIndex) ? (d.zoneIndex as number) : null,
+            zone: typeof d.zoneIndex === 'number' && Number.isInteger(d.zoneIndex) ? d.zoneIndex : null,
             type: text(d.deviceType),
             room: text(room.name),
             house: text(house.name),
@@ -301,10 +312,10 @@ export class AmbientikaCloud {
    */
   async status(serial: string): Promise<UnitStatus> {
     const data = await this.authed('GET', 'device/device-status', { query: { deviceSerialNumber: serial } });
-    if (data === null || typeof data !== 'object' || Array.isArray(data) || typeof (data as UnitStatus).operatingMode !== 'string') {
+    if (!isRecord(data) || typeof data.operatingMode !== 'string') {
       throw new CloudError('the status packet cannot be read', { status: 200, kind: 'format' });
     }
-    return data as UnitStatus;
+    return { ...data, operatingMode: data.operatingMode };
   }
 
   /**
