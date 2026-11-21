@@ -1,0 +1,74 @@
+name: Node.js CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+  pull_request:
+    paths-ignore:
+      - '**/*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22.x, 24.x]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Update npm
+        run: npm install -g npm@11
+
+      # The plugin is built and tested against the released Matterbridge. Its test helpers
+      # load vitest, so the development packages of Matterbridge are needed as well.
+      - name: Clone matterbridge
+        run: git clone --depth 1 --single-branch --no-tags -b main https://github.com/Luligu/matterbridge.git ../matterbridge
+
+      - name: Install matterbridge dependencies
+        working-directory: ../matterbridge
+        run: npm ci --no-fund --no-audit
+
+      - name: Build matterbridge
+        working-directory: ../matterbridge
+        run: npm run build
+
+      - name: Link matterbridge globally
+        working-directory: ../matterbridge
+        run: npm link --no-fund --no-audit
+
+      - name: Install plugin dependencies
+        run: npm ci --no-fund --no-audit
+
+      - name: Link matterbridge in the plugin
+        run: npm link matterbridge --no-fund --no-audit
+
+      - name: Build the plugin
+        run: npm run build
+
+      - name: Typecheck the plugin
+        run: npm run typecheck
+
+      - name: Lint the plugin
+        run: npm run lint
+
+      - name: Check the formatting
+        run: npm run format:check
+
+      - name: Test the plugin
+        run: npm run test

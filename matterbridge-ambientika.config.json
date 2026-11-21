@@ -1,0 +1,12 @@
+{
+  "name": "matterbridge-ambientika",
+  "type": "DynamicPlatform",
+  "username": "",
+  "password": "",
+  "pollInterval": 30,
+  "operatingModeSelect": true,
+  "whiteList": [],
+  "blackList": [],
+  "debug": false,
+  "unregisterOnShutdown": false
+}

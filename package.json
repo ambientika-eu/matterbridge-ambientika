@@ -1,0 +1,76 @@
+{
+  "name": "matterbridge-ambientika",
+  "version": "1.0.0",
+  "description": "Ambientika ventilation units with heat recovery for Matter",
+  "author": "Südwind GmbH <info@ambientika.eu> (https://www.ambientika.eu)",
+  "license": "MIT",
+  "homepage": "https://github.com/ambientika-eu/matterbridge-ambientika",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ambientika-eu/matterbridge-ambientika.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ambientika-eu/matterbridge-ambientika/issues"
+  },
+  "keywords": [
+    "matterbridge",
+    "plugin",
+    "ambientika",
+    "suedwind",
+    "ventilation",
+    "heat-recovery",
+    "matter",
+    "smarthome",
+    "homekit",
+    "google-home",
+    "alexa",
+    "smartthings",
+    "homeassistant"
+  ],
+  "type": "module",
+  "main": "dist/module.js",
+  "types": "dist/module.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/module.js",
+      "types": "./dist/module.d.ts"
+    }
+  },
+  "engines": {
+    "node": ">=22.13.0 <23.0.0 || >=24.0.0 <25.0.0 || >=26.0.0 <27.0.0"
+  },
+  "files": [
+    "dist",
+    "npm-shrinkwrap.json",
+    "CHANGELOG.md",
+    "*.config.json",
+    "*.schema.json"
+  ],
+  "scripts": {
+    "start": "matterbridge",
+    "add": "matterbridge --add .",
+    "remove": "matterbridge --remove .",
+    "link": "npm link --no-fund --no-audit matterbridge",
+    "build": "tsc --project tsconfig.build.json",
+    "buildProduction": "tsc --project tsconfig.build.production.json",
+    "clean": "node scripts/clean.mjs",
+    "cleanBuild": "npm run clean && npm run build",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "prepublishOnly": "npm run clean && npm run buildProduction"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "@vitest/coverage-v8": "5.1.0",
+    "oxfmt": "0.79.0",
+    "oxlint": "1.94.0",
+    "oxlint-tsgolint": "7.0.2007",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}

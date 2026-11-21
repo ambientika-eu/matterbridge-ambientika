@@ -1,0 +1,78 @@
+{
+  "title": "Ambientika",
+  "description": "matterbridge-ambientika by Südwind GmbH, the manufacturer of Ambientika",
+  "type": "object",
+  "properties": {
+    "name": {
+      "title": "Plugin Name",
+      "description": "Plugin name",
+      "type": "string",
+      "readOnly": true,
+      "ui:widget": "hidden"
+    },
+    "type": {
+      "title": "Plugin Type",
+      "description": "Plugin type",
+      "type": "string",
+      "readOnly": true,
+      "ui:widget": "hidden"
+    },
+    "username": {
+      "title": "E-mail address",
+      "description": "The e-mail address of your Ambientika app.",
+      "type": "string"
+    },
+    "password": {
+      "title": "Password",
+      "description": "The password of your Ambientika app.",
+      "type": "string",
+      "ui:widget": "password"
+    },
+    "pollInterval": {
+      "title": "Reading interval",
+      "description": "Seconds between two readings of all units (10 to 3600).",
+      "type": "number",
+      "minimum": 10,
+      "maximum": 3600,
+      "default": 30
+    },
+    "operatingModeSelect": {
+      "title": "Operating mode as a selection",
+      "description": "Adds the operating modes of the unit (Smart, Auto, Night, Away, ...) as a mode selection. Controllers that do not know mode selections ignore it.",
+      "type": "boolean",
+      "default": true
+    },
+    "whiteList": {
+      "title": "White List",
+      "description": "Only the units in the list will be exposed. If the list is empty, all units will be exposed.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true,
+      "selectFrom": "name"
+    },
+    "blackList": {
+      "title": "Black List",
+      "description": "The units in the list will not be exposed. If the list is empty, no units will be excluded.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true,
+      "selectFrom": "name"
+    },
+    "debug": {
+      "title": "Enable Debug",
+      "description": "Enable debug mode for the plugin. Only for debugging purposes.",
+      "type": "boolean",
+      "default": false
+    },
+    "unregisterOnShutdown": {
+      "title": "Unregister On Shutdown",
+      "description": "Unregister all devices on shutdown. Only for debugging purposes.",
+      "type": "boolean",
+      "default": false
+    }
+  }
+}
