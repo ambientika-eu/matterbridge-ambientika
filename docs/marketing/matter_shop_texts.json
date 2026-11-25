@@ -1,0 +1,41 @@
+{
+ "h3": {
+  "de": "Matter (Apple Home, Google Home, Alexa, SmartThings)",
+  "en": "Matter (Apple Home, Google Home, Alexa, SmartThings)",
+  "it": "Matter (Apple Home, Google Home, Alexa, SmartThings)",
+  "fr": "Matter (Apple Home, Google Home, Alexa, SmartThings)",
+  "es": "Matter (Apple Home, Google Home, Alexa, SmartThings)",
+  "nl": "Matter (Apple Home, Google Home, Alexa, SmartThings)",
+  "pl": "Matter (Apple Home, Google Home, Alexa, SmartThings)",
+  "pt": "Matter (Apple Home, Google Home, Alexa, SmartThings)",
+  "cs": "Matter (Apple Home, Google Home, Alexa, SmartThings)",
+  "da": "Matter (Apple Home, Google Home, Alexa, SmartThings)",
+  "sv": "Matter (Apple Home, Google Home, Alexa, SmartThings)"
+ },
+ "text": {
+  "de": "Mit dem kostenlosen Plugin „matterbridge-ambientika“ für Matterbridge wird jedes Gerät Ihres Ambientika-Kontos zu einem Matter-Gerät: ein Lüfter mit Aus, drei Stufen und Automatik, dazu Temperatur, Luftfeuchtigkeit, Luftqualität und die Betriebsart. Matterbridge ist eine freie Software und läuft zum Beispiel auf einem Raspberry Pi, einem NAS oder als Add-on in Home Assistant. Nach der Anmeldung mit den Zugangsdaten der Ambientika App scannen Sie einmal den QR-Code in Ihrer Matter-App, die Geräte erscheinen dann von selbst. Das Plugin wird von Südwind entwickelt und gepflegt.",
+  "en": "With the free plugin “matterbridge-ambientika” for Matterbridge, every unit of your Ambientika account becomes a Matter device: a fan with off, three speeds and automatic, plus temperature, humidity, air quality and the operating mode. Matterbridge is free software and runs, for example, on a Raspberry Pi, a NAS or as an add-on in Home Assistant. After signing in with the login of the Ambientika app you scan the QR code once in your Matter app, and the units appear by themselves. The plugin is developed and maintained by Südwind.",
+  "it": "Con il plugin gratuito “matterbridge-ambientika” per Matterbridge, ogni unità del tuo account Ambientika diventa un dispositivo Matter: un ventilatore con spento, tre velocità e automatico, più temperatura, umidità, qualità dell'aria e modalità di funzionamento. Matterbridge è un software libero e funziona, ad esempio, su un Raspberry Pi, un NAS o come add-on in Home Assistant. Dopo l'accesso con le credenziali dell'app Ambientika scansioni una volta il codice QR nella tua app Matter e le unità compaiono da sole. Il plugin è sviluppato e curato da Südwind.",
+  "fr": "Avec le plugin gratuit « matterbridge-ambientika » pour Matterbridge, chaque unité de votre compte Ambientika devient un appareil Matter : un ventilateur avec arrêt, trois vitesses et automatique, plus la température, l'humidité, la qualité de l'air et le mode de fonctionnement. Matterbridge est un logiciel libre qui fonctionne par exemple sur un Raspberry Pi, un NAS ou comme module complémentaire dans Home Assistant. Après la connexion avec les identifiants de l'app Ambientika, vous scannez une fois le code QR dans votre app Matter et les unités apparaissent d'elles-mêmes. Le plugin est développé et maintenu par Südwind.",
+  "es": "Con el plugin gratuito «matterbridge-ambientika» para Matterbridge, cada unidad de su cuenta Ambientika se convierte en un dispositivo Matter: un ventilador con apagado, tres velocidades y automático, además de temperatura, humedad, calidad del aire y modo de funcionamiento. Matterbridge es software libre y funciona, por ejemplo, en una Raspberry Pi, un NAS o como complemento en Home Assistant. Tras iniciar sesión con los datos de la app Ambientika, escanea una vez el código QR en su app Matter y las unidades aparecen solas. El plugin lo desarrolla y mantiene Südwind.",
+  "nl": "Met de gratis plugin ‘matterbridge-ambientika’ voor Matterbridge wordt elke unit van uw Ambientika-account een Matter-apparaat: een ventilator met uit, drie snelheden en automatisch, plus temperatuur, luchtvochtigheid, luchtkwaliteit en de bedrijfsmodus. Matterbridge is vrije software en draait bijvoorbeeld op een Raspberry Pi, een NAS of als add-on in Home Assistant. Na het aanmelden met de gegevens van de Ambientika-app scant u één keer de QR-code in uw Matter-app; de units verschijnen dan vanzelf. De plugin wordt ontwikkeld en onderhouden door Südwind.",
+  "pl": "Dzięki bezpłatnej wtyczce „matterbridge-ambientika” dla Matterbridge każde urządzenie z Twojego konta Ambientika staje się urządzeniem Matter: wentylatorem z wyłączeniem, trzema biegami i automatyką, a do tego temperatura, wilgotność, jakość powietrza i tryb pracy. Matterbridge to wolne oprogramowanie, które działa na przykład na Raspberry Pi, serwerze NAS lub jako dodatek w Home Assistant. Po zalogowaniu danymi z aplikacji Ambientika skanujesz raz kod QR w swojej aplikacji Matter, a urządzenia pojawiają się same. Wtyczkę rozwija i utrzymuje Südwind.",
+  "pt": "Com o plugin gratuito “matterbridge-ambientika” para Matterbridge, cada unidade da sua conta Ambientika torna-se um dispositivo Matter: um ventilador com desligado, três velocidades e automático, mais temperatura, humidade, qualidade do ar e modo de funcionamento. O Matterbridge é software livre e funciona, por exemplo, num Raspberry Pi, num NAS ou como add-on no Home Assistant. Depois de iniciar sessão com os dados da app Ambientika, lê uma vez o código QR na sua app Matter e as unidades aparecem sozinhas. O plugin é desenvolvido e mantido pela Südwind.",
+  "cs": "S bezplatným pluginem „matterbridge-ambientika“ pro Matterbridge se každá jednotka z vašeho účtu Ambientika stane zařízením Matter: ventilátor s vypnutím, třemi stupni a automatikou, k tomu teplota, vlhkost, kvalita vzduchu a provozní režim. Matterbridge je svobodný software a běží například na Raspberry Pi, na NAS nebo jako doplněk v Home Assistant. Po přihlášení údaji z aplikace Ambientika jednou naskenujete QR kód ve své aplikaci Matter a jednotky se objeví samy. Plugin vyvíjí a udržuje Südwind.",
+  "da": "Med det gratis plugin “matterbridge-ambientika” til Matterbridge bliver hver enhed på din Ambientika-konto til en Matter-enhed: en ventilator med slukket, tre trin og automatik samt temperatur, luftfugtighed, luftkvalitet og driftstilstand. Matterbridge er fri software og kører for eksempel på en Raspberry Pi, en NAS eller som tilføjelse i Home Assistant. Når du har logget ind med login til Ambientika-appen, scanner du QR-koden én gang i din Matter-app, og enhederne dukker op af sig selv. Pluginet udvikles og vedligeholdes af Südwind.",
+  "sv": "Med det kostnadsfria pluginet ”matterbridge-ambientika” för Matterbridge blir varje aggregat i ditt Ambientika-konto en Matter-enhet: en fläkt med av, tre steg och automatik samt temperatur, luftfuktighet, luftkvalitet och driftläge. Matterbridge är fri programvara och körs till exempel på en Raspberry Pi, en NAS eller som tillägg i Home Assistant. När du har loggat in med inloggningen till Ambientika-appen skannar du QR-koden en gång i din Matter-app, så dyker aggregaten upp av sig själva. Pluginet utvecklas och underhålls av Südwind."
+ },
+ "link": {
+  "de": "Anleitung und Download",
+  "en": "Guide and download",
+  "it": "Istruzioni e download",
+  "fr": "Notice et téléchargement",
+  "es": "Instrucciones y descarga",
+  "nl": "Handleiding en download",
+  "pl": "Instrukcja i pobieranie",
+  "pt": "Instruções e download",
+  "cs": "Návod a stažení",
+  "da": "Vejledning og download",
+  "sv": "Anvisning och nedladdning"
+ }
+}
