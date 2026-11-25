@@ -50,6 +50,8 @@ export interface Unit {
   type: string;
   room: string;
   house: string;
+  /** zoneIndex is only unique within one house */
+  houseId: string;
 }
 
 /** The status packet of a unit as the cloud holds it. Values the plugin does not know are kept as reported. */
@@ -297,6 +299,7 @@ export class AmbientikaCloud {
             type: text(d.deviceType),
             room: text(room.name),
             house: text(house.name),
+            houseId: String(houseId),
           });
         }
       }

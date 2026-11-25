@@ -34,15 +34,22 @@ How the fan maps to the unit:
 - **Off** is the operating mode Off.
 - **Auto** stands for the modes in which the unit chooses its fan step itself (Smart and Auto). Choosing Auto sets
   Smart.
-- **Low, Medium, High** set the fan step. Out of Smart or Auto the unit changes to manual heat recovery, because only
-  there a fixed step holds. A unit that was off runs in the mode it had before. In every other mode (Night, Away,
-  Expulsion, ...) the mode stays and the step changes.
+- **Low, Medium, High** set the fan step. Out of a mode in which the unit chooses its step itself (Smart, Auto, Night,
+  Away, Surveillance) the unit changes to manual heat recovery, because only in a manual mode a fixed step holds. A
+  unit that was off runs in the manual mode it had before. In the other modes (Expulsion, Intake, ...) the mode stays
+  and the step changes.
 - The steps Night and Turbo, which a unit chooses itself, are shown as Low and High.
 
 Not every controller shows every part: a mode selection, for example, is not shown in Apple Home. The option
 _Operating mode as a selection_ removes it for all controllers.
 
-For coupled units set the mode at the Master of the zone; a Slave runs with its Master.
+For coupled units set the mode at the Master of the zone; a Slave runs with its Master and is shown with the mode of
+its Master.
+
+The plugin follows the same rules as the [Ambientika MQTT Bridge](https://github.com/ambientika-eu/ambientika-mqtt-bridge)
+and the integration for Home Assistant: a single impossible temperature or humidity reading is held back, a saturated
+humidity sensor reads 100 %, and a command stays shown until the unit reports it (up to two minutes) - the cloud
+confirms that it took the command, the unit reports it a little later.
 
 A unit the cloud has no current status of is shown as not reachable after three readings.
 

@@ -11,6 +11,8 @@ import './ipv6-shim.mjs';
 const NAME = 'Ambientika';
 const MATTER_PORT = 8011;
 
+import { readFileSync } from 'node:fs';
+
 import { invokeSubscribeHandler, type MatterbridgeEndpoint, type PlatformMatterbridge } from 'matterbridge';
 import { LogLevel } from 'matterbridge/logger';
 import { AirQuality, BridgedDeviceBasicInformation, FanControl, ModeSelect, RelativeHumidityMeasurement, TemperatureMeasurement } from 'matterbridge/matter/clusters';
@@ -27,11 +29,24 @@ import {
 } from 'matterbridge/test-utils/vitest';
 
 import { AmbientikaCloud, cleanHost, CloudError } from '../src/cloud.js';
+import { Measurements } from '../src/logic.js';
 import initializePlugin, { AmbientikaPlatform, type AmbientikaPlatformConfig, fanOf, TIMING } from '../src/module.js';
 import fakeCloud from './fake-cloud.cjs';
 
 // Short times, so that outages and retries can be watched in seconds.
-Object.assign(TIMING, { pollMinS: 0.15, unitsIntervalS: 0.6, retryFirstS: 0.3, retryMaxS: 0.6, retryRejectedS: 0.8, afterCommandS: 0.3, collectCommandS: 0.05, requestS: 0.5 });
+Object.assign(TIMING, {
+  pollMinS: 0.15,
+  unitsIntervalS: 0.6,
+  retryFirstS: 0.3,
+  retryMaxS: 0.6,
+  retryRejectedFirstS: 0.8,
+  retryRejectedS: 0.8,
+  afterCommandS: 0.3,
+  confirmS: 1.2,
+  confirmEveryS: 0.2,
+  collectCommandS: 0.05,
+  requestS: 0.5,
+});
 
 const FLUR = 'A0B1C2D3E402'; // Master zone 0
 const WOHN = 'A0B1C2D3E401'; // Slave zone 0
@@ -102,6 +117,8 @@ describe('matterbridge-ambientika', () => {
 
   beforeEach(() => {
     cloud.reset();
+    // Nothing of the test before is waited for any more.
+    for (const state of platform?.units.values() ?? []) state.expected = undefined;
     vi.clearAllMocks();
   });
 
@@ -205,7 +222,16 @@ describe('matterbridge-ambientika', () => {
     await wait(500);
     await controllerSetsFan(FLUR, FanControl.FanMode.High);
     await expect.poll(() => changes().length).toBe(2);
-    expect(changes()[1].body).toMatchObject({ operatingMode: '3', fanSpeed: 2 });
+    // Night chooses its step itself, like Smart: a fixed step means manual heat recovery
+    expect(changes()[1].body).toMatchObject({ operatingMode: '2', fanSpeed: 2 });
+    await expect.poll(() => platform.units.get(FLUR)?.expected).toBeUndefined();
+    // off, and before that a manual mode: that mode again
+    cloud.set(FLUR, { operatingMode: 'Off', lastOperatingMode: 'Intake' });
+    await expect.poll(() => fanMode(FLUR)).toBe(FanControl.FanMode.Off);
+    cloud.clear();
+    await controllerSetsFan(FLUR, FanControl.FanMode.Low);
+    await expect.poll(() => changes().length).toBe(1);
+    expect(changes()[0].body).toMatchObject({ operatingMode: '8', fanSpeed: 0 });
     // off, and before that the unit ran in Smart: a fixed step means manual heat recovery
     cloud.set(ELTERN, { operatingMode: 'Off', lastOperatingMode: 'Smart' });
     await expect.poll(() => fanMode(ELTERN)).toBe(FanControl.FanMode.Off);
@@ -257,6 +283,51 @@ describe('matterbridge-ambientika', () => {
     await expect.poll(() => changes().length).toBe(1);
     expect(changes()[0].body).toEqual({ deviceSerialNumber: FLUR, operatingMode: '0', fanSpeed: 2, humidityLevel: 1, lightSensorLevel: 3 });
     expect(changes()[0].ok).toBe(true);
+  });
+
+  it('shows the mode of the zone Master for a Slave', async () => {
+    cloud.set(WOHN, { operatingMode: 'Auto' }); // its own field, left over from before it was coupled
+    await expect.poll(() => platform.units.get(WOHN)?.status?.operatingMode).toBe('Auto');
+    expect(dev(WOHN).getAttribute(ModeSelect, 'currentMode')).toBe(0); // Smart, as the Master
+    cloud.set(FLUR, { operatingMode: 'Night', fanSpeed: 'Low' });
+    await expect.poll(() => dev(WOHN).getAttribute(ModeSelect, 'currentMode')).toBe(3);
+    expect(fanMode(WOHN)).toBe(FanControl.FanMode.Medium); // its own step in the mode of the Master
+    expect(logged(LogLevel.INFO, /Operating mode of Wohnzimmer .*shown as Smart - it is a Slave/)).toBe(1);
+    // the unit itself reports that it is a Master now: its own mode counts
+    cloud.set(WOHN, { deviceRole: 'Master' });
+    await expect.poll(() => dev(WOHN).getAttribute(ModeSelect, 'currentMode')).toBe(1);
+  });
+
+  it('shows what was sent until the unit reports it, and says so when it never does', async () => {
+    cloud.deaf(FLUR, true);
+    await invokeSubscribeHandler(dev(FLUR), 'fanControl', 'fanMode', FanControl.FanMode.High, fanMode(FLUR));
+    await expect.poll(() => changes().length).toBe(1);
+    await wait(700); // several readings later
+    expect(fanMode(FLUR)).toBe(FanControl.FanMode.High);
+    expect(dev(FLUR).getAttribute(ModeSelect, 'currentMode')).toBe(2);
+    await expect.poll(() => fanMode(FLUR), { timeout: 3000 }).toBe(FanControl.FanMode.Auto);
+    expect(logged(LogLevel.WARN, /still reports operating mode Smart instead of ManualHeatRecovery, fan speed Medium instead of High/)).toBe(1);
+    // a unit that takes the command: nothing is complained about
+    cloud.deaf(FLUR, false);
+    vi.clearAllMocks();
+    await invokeSubscribeHandler(dev(FLUR), 'fanControl', 'fanMode', FanControl.FanMode.Low, fanMode(FLUR));
+    await wait(1800);
+    expect(fanMode(FLUR)).toBe(FanControl.FanMode.Low);
+    expect(platform.units.get(FLUR)?.expected).toBeUndefined();
+    expect(logged(LogLevel.WARN, /still reports/)).toBe(0);
+  });
+
+  it('holds back impossible readings and reads a saturated humidity sensor as 100 %', async () => {
+    const temperature = (): unknown => dev(ELTERN).getChildEndpointById('Temperature')?.getAttribute(TemperatureMeasurement, 'measuredValue');
+    const humidity = (): unknown => dev(ELTERN).getChildEndpointById('Humidity')?.getAttribute(RelativeHumidityMeasurement, 'measuredValue');
+    await expect.poll(() => humidity()).toBe(5500);
+    cloud.set(ELTERN, { temperature: 999, humidity: 0 });
+    await wait(500);
+    expect(temperature()).toBe(2100);
+    expect(humidity()).toBe(5500);
+    cloud.set(ELTERN, { temperature: 22.5, humidity: 130 });
+    await expect.poll(() => humidity()).toBe(10000);
+    expect(temperature()).toBe(2250);
   });
 
   it('says once that a Slave does not follow a mode of its own', async () => {
@@ -413,6 +484,28 @@ describe('matterbridge-ambientika', () => {
 });
 
 describe('cloud client and mapping', () => {
+  it('shows the same measured values as the Home Assistant integration and the MQTT Bridge', () => {
+    const cases = JSON.parse(readFileSync(new URL('./logic-vectors.json', import.meta.url), 'utf8'));
+    const dec = (v: unknown): unknown => (v === 'inf' ? Infinity : v === '-inf' ? -Infinity : v);
+    let steps = 0;
+    for (const c of cases) {
+      const quiet = (): void => {};
+      const m = new Measurements({ info: quiet, debug: quiet }, c.poll);
+      let last: Record<string, unknown> = {};
+      let lastKey = '';
+      for (const s of c.steps) {
+        const key = JSON.stringify(s.status);
+        const status = key === lastKey ? last : Object.fromEntries(Object.entries(s.status).map(([k, v]) => [k, dec(v)]));
+        last = status;
+        lastKey = key;
+        const got = m.take('X', status, s.now);
+        expect([got.temperature, got.humidity]).toEqual([dec(s.want[0]), dec(s.want[1])]);
+        steps++;
+      }
+    }
+    expect(steps).toBeGreaterThan(5000);
+  });
+
   it('reads the address as typed', () => {
     expect(cleanHost('')).toBe('https://app.ambientika.eu:4521');
     expect(cleanHost(null)).toBe('https://app.ambientika.eu:4521');

@@ -37,6 +37,7 @@ import {
   type UnitMode,
   type UnitStatus,
 } from './cloud.js';
+import { Measurements } from './logic.js';
 
 export type AmbientikaPlatformConfig = BasePlatformConfig & {
   username?: string;
@@ -59,10 +60,17 @@ export const TIMING = {
   /** until the next try after the cloud could not be reached: first, and longest */
   retryFirstS: 15,
   retryMaxS: 300,
-  /** until the next sign-in after the cloud did not accept e-mail address and password */
+  /** until the next sign-in after the cloud did not accept e-mail address and password: first, and longest */
+  retryRejectedFirstS: 60,
   retryRejectedS: 1800,
   /** after a command until the unit is read again; the unit needs that long to report */
   afterCommandS: 4,
+  /** after a command the controller shows what was sent until the unit reports it, at most that long */
+  confirmS: 120,
+  /** while the unit has not reported a command yet, it is read again that often */
+  confirmEveryS: 15,
+  /** a Slave shows the mode of its Master while the Master was read within that time */
+  masterModeMaxAgeS: 300,
   /** a controller often writes several attributes for one tap; they are sent as one command */
   collectCommandS: 0.3,
   /** the plugin waits that long for one answer of the cloud */
@@ -72,7 +80,19 @@ export const TIMING = {
 const REQUESTS_AT_ONCE = 10;
 /** Readings without a status in a row after which a unit is shown as not reachable. */
 const OFFLINE_AFTER = 3;
-const SLAVE_ROLES = new Set(['SlaveEqualMaster', 'SlaveOppositeMaster']);
+/** Operating modes in which the unit chooses the fan step itself. */
+const UNIT_CHOOSES_FAN = new Set(['Smart', 'Auto', 'Night', 'AwayHome', 'Surveillance']);
+const SETTING_NAMES: Record<string, string> = { operatingMode: 'operating mode', fanSpeed: 'fan speed' };
+
+/**
+ * True for the roles of a unit that runs with a Master.
+ *
+ * @param {string | undefined} role - Role as the cloud names it.
+ * @returns {boolean} Whether the unit is a Slave.
+ */
+function isSlave(role: string | undefined): boolean {
+  return typeof role === 'string' && role.toLowerCase().startsWith('slave');
+}
 /** Name of the stored list of units: the units are there at once after a restart, also while the cloud is away. */
 const STORED_UNITS = 'units';
 
@@ -120,7 +140,21 @@ export function fanOf(status: UnitStatus): { fanMode: FanControl.FanMode; percen
 interface UnitState {
   unit: Unit;
   device?: MatterbridgeEndpoint;
+  /** the status packet as read */
   status?: UnitStatus;
+  /** when it was read */
+  readAt: number;
+  /** the status packet with what was sent and not reported yet */
+  shown?: UnitStatus;
+  /** temperature and humidity after the plausibility check */
+  measured: { temperature: number | null; humidity: number | null };
+  /** the role the unit itself reports */
+  liveRole?: string;
+  /** what was sent and the unit has not reported yet */
+  expected?: { settings: Record<string, string>; until: number; lastOperatingMode: string };
+  check?: NodeJS.Timeout;
+  lastModeShown?: string;
+  modeNote?: string;
   failures: number;
   /** undefined = not known yet */
   reachable?: boolean;
@@ -161,6 +195,8 @@ export class AmbientikaPlatform extends MatterbridgeDynamicPlatform {
   private stopped = false;
   private allSilentLogged = false;
   private readonly intervalS: number;
+  private rejectedS = TIMING.retryRejectedFirstS;
+  private measurements!: Measurements;
 
   constructor(matterbridge: PlatformMatterbridge, log: AnsiLogger, config: AmbientikaPlatformConfig) {
     super(matterbridge, log, config);
@@ -171,6 +207,10 @@ export class AmbientikaPlatform extends MatterbridgeDynamicPlatform {
       );
     }
     const typed = Number(config.pollInterval);
+    this.measurements = new Measurements(
+      { info: (t: string): void => this.log.info(t), debug: (t: string): void => this.log.debug(t) },
+      Number.isFinite(typed) && typed > 0 ? typed : TIMING.pollS,
+    );
     this.intervalS = Number.isFinite(typed) && typed > 0 ? Math.min(TIMING.pollMaxS, Math.max(TIMING.pollMinS, typed < 1 ? typed : Math.round(typed))) : TIMING.pollS;
   }
 
@@ -203,7 +243,7 @@ export class AmbientikaPlatform extends MatterbridgeDynamicPlatform {
     this.configured = true;
     // The attributes are persisted by Matterbridge: bring them up to date with what was read meanwhile.
     for (const state of this.units.values()) {
-      if (state.status) await this.show(state, state.status);
+      if (state.status) await this.showState(state);
       if (state.reachable !== undefined) await this.showReachable(state, state.reachable);
     }
   }
@@ -213,7 +253,10 @@ export class AmbientikaPlatform extends MatterbridgeDynamicPlatform {
     if (this.timer) clearTimeout(this.timer);
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
-    for (const state of this.units.values()) if (state.wantedTimer) clearTimeout(state.wantedTimer);
+    for (const state of this.units.values()) {
+      if (state.wantedTimer) clearTimeout(state.wantedTimer);
+      if (state.check) clearTimeout(state.check);
+    }
     this.cloud?.close();
     await super.onShutdown(reason);
     this.log.info(`Shutting down platform ${this.config.name}: ${reason ?? ''}`);
@@ -285,7 +328,7 @@ export class AmbientikaPlatform extends MatterbridgeDynamicPlatform {
     device.addChildDeviceType('Humidity', humiditySensor).createDefaultRelativeHumidityMeasurementClusterServer(null, 0, 10000).addRequiredClusterServers();
     device.addChildDeviceType('AirQuality', airQualitySensor).createDefaultAirQualityClusterServer(AirQuality.AirQualityEnum.Unknown).addRequiredClusterServers();
 
-    const state: UnitState = { unit, device, failures: 0, holdUntil: 0, queue: Promise.resolve() };
+    const state: UnitState = { unit, device, readAt: 0, measured: { temperature: null, humidity: null }, failures: 0, holdUntil: 0, queue: Promise.resolve() };
     this.units.set(unit.serial, state);
 
     // What a controller sets. Changes the plugin makes itself come without a fabric and are not commands.
@@ -323,6 +366,7 @@ export class AmbientikaPlatform extends MatterbridgeDynamicPlatform {
       return;
     }
     this.retryS = TIMING.retryFirstS;
+    this.rejectedS = TIMING.retryRejectedFirstS;
     this.signedIn = true;
     this.log.notice(`Signed in to the Ambientika cloud, ${this.units.size} unit${this.units.size === 1 ? '' : 's'}`);
     await this.poll();
@@ -337,9 +381,13 @@ export class AmbientikaPlatform extends MatterbridgeDynamicPlatform {
   private async lost(error: unknown): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     const rejected = error instanceof CloudError && error.kind === 'auth';
-    const wait = rejected ? TIMING.retryRejectedS : this.retryS;
+    const wait = rejected ? this.rejectedS : this.retryS;
+    // Not at every reading: a password that is no longer right would be sent again and again.
+    if (rejected) this.rejectedS = Math.min(TIMING.retryRejectedS, this.rejectedS * 2);
     if (rejected) {
-      this.log.error(`${message}. Please check them in the settings of the plugin (the same as in the Ambientika app). Next try in ${Math.max(1, Math.round(wait / 60))} minutes.`);
+      this.log.error(
+        `${message}. Please check them in the settings of the plugin (the same as in the Ambientika app). Next try in ${wait < 120 ? `${Math.round(wait)} seconds` : `${Math.round(wait / 60)} minutes`}.`,
+      );
     } else if (this.signedIn || this.retryS === TIMING.retryFirstS) {
       this.log.warn(`Ambientika cloud: ${message}. Trying again, first in ${wait} seconds.`);
     } else {
@@ -372,6 +420,8 @@ export class AmbientikaPlatform extends MatterbridgeDynamicPlatform {
       this.log.notice(`Unit ${this.label(state)} is no longer in the Ambientika account - it is removed`);
       this.units.delete(serial);
       if (state.wantedTimer) clearTimeout(state.wantedTimer);
+      if (state.check) clearTimeout(state.check);
+      this.measurements.forget(serial);
       if (state.device) await this.unregisterDevice(state.device);
     }
     await this.context?.set(STORED_UNITS, list);
@@ -422,10 +472,152 @@ export class AmbientikaPlatform extends MatterbridgeDynamicPlatform {
   private async take(state: UnitState, status: UnitStatus): Promise<void> {
     if (this.stopped) return;
     state.status = status;
+    state.readAt = Date.now();
+    if (typeof status.deviceRole === 'string' && status.deviceRole !== '') state.liveRole = status.deviceRole;
+    state.measured = this.measurements.take(state.unit.serial, status);
     if ((FAN_SPEEDS as readonly string[]).includes(status.fanSpeed ?? '')) state.lastFan = status.fanSpeed;
     // A unit that is switched off reports a default light sensor level, not the one it was set to.
     if (status.operatingMode !== 'Off' && (LIGHT_SENSOR_LEVELS as readonly string[]).includes(status.lightSensorLevel ?? '')) state.lastLight = status.lightSensorLevel;
-    await this.show(state, status);
+    await this.showState(state);
+  }
+
+  /**
+   * Current role: the unit's own report from its last status, else the role of the
+   * list of units. The list goes stale when units are coupled again in the app.
+   *
+   * @param {UnitState} state - The unit.
+   * @returns {string} The role.
+   */
+  private roleOf(state: UnitState): string {
+    return state.liveRole ?? state.unit.role;
+  }
+
+  /**
+   * The Master of the zone of a Slave. zoneIndex is only unique within one house.
+   *
+   * @param {UnitState} state - The unit.
+   * @returns {UnitState | undefined} The Master, undefined for a unit that is no Slave or has none.
+   */
+  zoneMaster(state: UnitState): UnitState | undefined {
+    if (!isSlave(this.roleOf(state)) || state.unit.zone === null) return undefined;
+    for (const other of this.units.values()) {
+      if (other === state) continue;
+      if (other.unit.zone === state.unit.zone && other.unit.houseId === state.unit.houseId && this.roleOf(other).toLowerCase() === 'master') return other;
+    }
+    return undefined;
+  }
+
+  /**
+   * The status to show: a setting that was sent and that the unit has not reported
+   * yet is shown as sent, for at most TIMING.confirmS. After that time the unit's
+   * own values count and the log says which setting the unit did not take over.
+   *
+   * @param {UnitState} state - The unit.
+   * @param {UnitStatus} packet - The status packet as read.
+   * @returns {UnitStatus} The status packet to show.
+   */
+  private withExpected(state: UnitState, packet: UnitStatus): UnitStatus {
+    const e = state.expected;
+    if (!e) return packet;
+    const missing = Object.keys(e.settings).filter((k) => packet[k] !== e.settings[k]);
+    if (missing.length === 0) {
+      state.expected = undefined;
+      return packet;
+    }
+    if (Date.now() < e.until) {
+      const shown: UnitStatus = { ...packet, ...e.settings };
+      if ('operatingMode' in e.settings && packet.operatingMode !== e.settings.operatingMode) shown.lastOperatingMode = e.lastOperatingMode;
+      return shown;
+    }
+    state.expected = undefined;
+    const what = missing.map((k) => `${SETTING_NAMES[k] ?? k} ${String(packet[k])} instead of ${e.settings[k]}`).join(', ');
+    const slave = isSlave(this.roleOf(state)) ? ' This unit is a Slave and runs with the Master of its zone; please set it at the Master.' : '';
+    this.log.warn(
+      `${this.label(state)}: the cloud accepted the command, but the unit still reports ${what} after ${Math.round(TIMING.confirmS)} seconds. The cloud confirms the call, not its execution on the unit.${slave}`,
+    );
+    return packet;
+  }
+
+  /**
+   * What to show for a unit: its status with what was sent and not reported yet, the
+   * measured values after the plausibility check, and for a Slave the operating mode
+   * of its zone Master - a Slave runs with its Master.
+   *
+   * @param {UnitState} state - The unit.
+   * @returns {UnitStatus | undefined} The status to show, undefined while nothing was read.
+   */
+  viewOf(state: UnitState): UnitStatus | undefined {
+    const shown = state.shown ?? state.status;
+    if (!shown) return undefined;
+    let mode = shown.operatingMode;
+    const master = this.zoneMaster(state);
+    const masterStatus = master ? (master.shown ?? master.status) : undefined;
+    if (master && masterStatus && Date.now() - master.readAt <= Math.max(TIMING.masterModeMaxAgeS, 2 * this.intervalS + 60) * 1000) mode = masterStatus.operatingMode;
+    return { ...shown, operatingMode: mode, temperature: state.measured.temperature ?? undefined, humidity: state.measured.humidity ?? undefined };
+  }
+
+  /**
+   * Works out what to show for a unit and writes it; the Slaves of a Master follow.
+   *
+   * @param {UnitState} state - The unit.
+   * @returns {Promise<void>} Resolves when it is shown.
+   */
+  private async showState(state: UnitState): Promise<void> {
+    if (!state.status || this.stopped) return;
+    state.shown = this.withExpected(state, state.status);
+    const view = this.viewOf(state);
+    if (!view) return;
+    const own = state.shown.operatingMode;
+    if (view.operatingMode !== own) {
+      const note = `${own}>${view.operatingMode}`;
+      if (state.modeNote !== note) {
+        state.modeNote = note;
+        this.log.info(
+          `Operating mode of ${this.label(state)}: the unit reports ${own}, shown as ${view.operatingMode} - it is a Slave and runs with its zone Master ${this.zoneMaster(state)?.unit.serial}`,
+        );
+      }
+    }
+    await this.show(state, view);
+    const changed = state.lastModeShown !== view.operatingMode;
+    state.lastModeShown = view.operatingMode;
+    if (changed && !isSlave(this.roleOf(state))) {
+      for (const slave of this.units.values()) {
+        if (slave !== state && slave.status && this.zoneMaster(slave) === state) {
+          const slaveView = this.viewOf(slave);
+          if (slaveView) await this.show(slave, slaveView);
+        }
+      }
+    }
+  }
+
+  /**
+   * Reads one unit a few seconds after a command, and again every few seconds
+   * while the unit has not reported what was sent.
+   *
+   * @param {UnitState} state - The unit.
+   * @param {number} seconds - Until the reading.
+   */
+  private readSoon(state: UnitState, seconds: number = TIMING.afterCommandS): void {
+    if (this.stopped) return;
+    if (state.check) clearTimeout(state.check);
+    const serial = state.unit.serial;
+    const timer = setTimeout(
+      () => {
+        if (state.check === timer) state.check = undefined;
+        if (this.stopped || !this.units.has(serial) || state.holdUntil > Date.now()) return;
+        void (async (): Promise<void> => {
+          try {
+            const r = await this.readUnit(state);
+            if (r.ok) await this.judge([r]);
+          } catch {
+            // the next reading of all units tells
+          }
+          if (!this.stopped && state.expected && !state.check) this.readSoon(state, TIMING.confirmEveryS);
+        })();
+      },
+      seconds * 1000 + 200,
+    );
+    state.check = timer;
   }
 
   private async readUnit(state: UnitState): Promise<{ state: UnitState; ok: boolean; reached: boolean; error?: unknown }> {
@@ -543,7 +735,7 @@ export class AmbientikaPlatform extends MatterbridgeDynamicPlatform {
           if (this.stopped) return;
           this.log.warn(`${this.label(state)}: ${e instanceof Error ? e.message : String(e)}`);
           // The controller shows what the unit has, not what could not be set.
-          if (state.status) void this.show(state, state.status);
+          if (state.status) void this.showState(state);
         });
     }, TIMING.collectCommandS * 1000);
   }
@@ -552,11 +744,10 @@ export class AmbientikaPlatform extends MatterbridgeDynamicPlatform {
     if (!this.cloud || !this.signedIn) throw new Error('not signed in to the Ambientika cloud, nothing sent');
     if (!this.units.has(state.unit.serial)) return;
     const serial = state.unit.serial;
-    let base = state.status;
-    if (!base) {
-      base = await this.cloud.status(serial);
-      await this.take(state, base);
-    }
+    if (!state.status) await this.take(state, await this.cloud.status(serial));
+    // The next command builds on what was sent before, also while the unit has not reported it yet.
+    const base = state.shown ?? state.status;
+    if (!base) throw new Error('no status of the unit yet');
     const mode: UnitMode = {
       operatingMode: base.operatingMode,
       fanSpeed: base.fanSpeed ?? '',
@@ -574,9 +765,9 @@ export class AmbientikaPlatform extends MatterbridgeDynamicPlatform {
         if (mode.operatingMode !== 'Auto') mode.operatingMode = 'Smart';
       } else {
         mode.fanSpeed = wanted.fanMode === FanControl.FanMode.Low ? 'Low' : wanted.fanMode === FanControl.FanMode.Medium ? 'Medium' : 'High';
-        // A fixed step: out of Smart and Auto into manual heat recovery; a unit that is off runs in its last mode again.
-        if (mode.operatingMode === 'Smart' || mode.operatingMode === 'Auto') mode.operatingMode = 'ManualHeatRecovery';
-        else if (mode.operatingMode === 'Off') mode.operatingMode = usable && previous !== 'Smart' && previous !== 'Auto' ? previous : 'ManualHeatRecovery';
+        // A fixed step: out of a mode in which the unit chooses its step into manual heat recovery; a unit that is off runs in its last manual mode again.
+        if (UNIT_CHOOSES_FAN.has(mode.operatingMode)) mode.operatingMode = 'ManualHeatRecovery';
+        else if (mode.operatingMode === 'Off') mode.operatingMode = usable && !UNIT_CHOOSES_FAN.has(previous) ? previous : 'ManualHeatRecovery';
       }
     }
     if (!(OPERATING_MODES as readonly string[]).includes(mode.operatingMode)) {
@@ -597,20 +788,30 @@ export class AmbientikaPlatform extends MatterbridgeDynamicPlatform {
       throw new Error(`command not accepted (${e instanceof Error ? e.message : String(e)})`, { cause: e });
     }
     this.log.info(`${this.label(state)}: set to ${mode.operatingMode}, fan ${mode.fanSpeed}`);
-    const role = base.deviceRole ?? state.unit.role;
-    if (SLAVE_ROLES.has(role) && !state.slaveNoted) {
+    if (isSlave(this.roleOf(state)) && !state.slaveNoted) {
       state.slaveNoted = true;
       this.log.notice(`${this.label(state)} is a Slave and runs with the Master of its zone. Set the mode at the Master; a Slave does not follow a command of its own.`);
     }
     if (this.stopped) return;
-    // The next command builds on these values, and the controller shows them until the unit reports.
-    const assumed: UnitStatus = { ...base, ...mode };
-    if (mode.operatingMode !== base.operatingMode) assumed.lastOperatingMode = base.operatingMode;
+    // The controller shows what was sent until the unit reports it; the next command builds on it.
+    const fixedStep = wanted.fanMode === FanControl.FanMode.Low || wanted.fanMode === FanControl.FanMode.Medium || wanted.fanMode === FanControl.FanMode.High;
+    const settings: Record<string, string> = {};
+    if (mode.operatingMode !== base.operatingMode || wanted.operatingMode !== undefined) settings.operatingMode = mode.operatingMode;
+    if (fixedStep && wanted.operatingMode === undefined && !UNIT_CHOOSES_FAN.has(mode.operatingMode) && mode.operatingMode !== 'Off') settings.fanSpeed = mode.fanSpeed;
+    const before = state.expected;
+    const pending: Record<string, string> = before ? { ...before.settings } : {};
+    if (UNIT_CHOOSES_FAN.has(mode.operatingMode) || mode.operatingMode === 'Off') delete pending.fanSpeed;
+    Object.assign(pending, settings);
+    state.expected =
+      Object.keys(pending).length > 0
+        ? {
+            settings: pending,
+            until: Date.now() + TIMING.confirmS * 1000,
+            lastOperatingMode: before && 'operatingMode' in before.settings ? before.lastOperatingMode : (state.status?.operatingMode ?? base.operatingMode),
+          }
+        : undefined;
     state.holdUntil = Date.now() + TIMING.afterCommandS * 1000;
-    await this.take(state, assumed);
-    this.later(() => {
-      if (this.stopped || !this.units.has(serial) || state.holdUntil > Date.now()) return;
-      void this.readUnit(state).then(async (r) => (r.ok ? this.judge([r]) : undefined));
-    }, TIMING.afterCommandS + 0.2);
+    await this.showState(state);
+    this.readSoon(state);
   }
 }

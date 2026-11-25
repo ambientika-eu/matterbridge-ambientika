@@ -173,7 +173,7 @@ async function startFakeCloud(listenPort = 0) {
           (!('lightSensorLevel' in b) || int(b.lightSensorLevel, 3));
         log('change-mode', { serial: b.deviceSerialNumber, body: b, ok });
         if (!ok) return send(res, 500, { message: 'Value was either too large or too small for an unsigned byte' });
-        if (u.fault) return send(res, 200); // accepted for a silent unit; it just never lands
+        if (u.fault || u.deaf) return send(res, 200); // accepted for a silent unit; it just never lands
         const st = u.status;
         const old = st.operatingMode;
         st.operatingMode = MODES[Number(b.operatingMode)];
@@ -225,6 +225,10 @@ async function startFakeCloud(listenPort = 0) {
     fault(serial, fault) {
       S.units.get(serial).fault = fault;
       if (!fault) this.release();
+    },
+    /** the cloud accepts commands for this unit, the unit does not carry them out */
+    deaf(serial, on) {
+      S.units.get(serial).deaf = on;
     },
     rename(serial, name) {
       S.units.get(serial).name = name;
